@@ -56,21 +56,48 @@ def test_connection():
 
 
 @app.get("/api/searches/recent")
-def get_recent_searches_endpoint(minutes: int = 5, include_raw: bool = False):
+def get_recent_searches_endpoint(
+    minutes: int = 5, 
+    include_raw: bool = False,
+    only_problematic: bool = False 
+):
     try:
         entries = splunk_api.get_recent_searches(minutes=minutes)
         
         searches = []
         ad_hoc_count = 0
         saved_count = 0
+        problematic_count = 0
         
         for entry in entries:
+          
             search_data = SearchAnalyzer.parse_search_entry(entry)
+            
+            
             if search_data['is_saved_search']:
                 saved_count += 1
             else:
                 ad_hoc_count += 1
+            
+            
             if search_data['is_done']:
+                
+                
+                issues = SearchAnalyzer.detect_issues(search_data)
+                
+                
+                search_data['issues'] = issues
+                
+                if issues:
+                    problematic_count += 1
+                    search_data['severity'] = SearchAnalyzer.calculate_severity(issues, search_data)
+                else:
+                    search_data['severity'] = 'none'
+                
+                
+                if only_problematic and not issues:
+                    continue
+                
                 if include_raw:
                     search_data['raw_entry'] = entry
                 
@@ -80,13 +107,13 @@ def get_recent_searches_endpoint(minutes: int = 5, include_raw: bool = False):
             'total': len(searches),
             'ad_hoc': ad_hoc_count,
             'saved': saved_count,
+            'problematic': problematic_count,
             'minutes': minutes,
             'searches': searches
         }
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
 
 # ==================== RUN ====================
 
