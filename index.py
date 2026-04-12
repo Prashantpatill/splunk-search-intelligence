@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 # Import from app modules
 from app.config import settings
 from app.core.splunk import SplunkAPI
+from app.core.detector import SearchAnalyzer
+
 
 # Initialize FastAPI
 app = FastAPI(
@@ -55,39 +57,20 @@ def test_connection():
 
 @app.get("/api/searches/recent")
 def get_recent_searches_endpoint(minutes: int = 5, include_raw: bool = False):
-    """
-    Get recent searches from Splunk
-    
-    Args:
-        minutes: Look back this many minutes (default: 5)
-        include_raw: Include raw entry from Splunk API (default: False)
-    """
     try:
         entries = splunk_api.get_recent_searches(minutes=minutes)
+        
         searches = []
         ad_hoc_count = 0
         saved_count = 0
         
         for entry in entries:
-            content = entry.get('content', {})
-            
-            is_saved = content.get('isSavedSearch', False)
-            is_done = content.get('isDone', False)
-            if is_saved:
+            search_data = SearchAnalyzer.parse_search_entry(entry)
+            if search_data['is_saved_search']:
                 saved_count += 1
             else:
                 ad_hoc_count += 1
-            if is_done:
-                search_data = {
-                    'search_id': content.get('sid'),
-                    'user': content.get('author', 'unknown'),
-                    'search_spl': content.get('search', ''),
-                    'is_saved_search': is_saved,
-                    'is_done': is_done,
-                    'runtime': float(content.get('runDuration', 0)),
-                    'events_scanned': int(content.get('scanCount', 0)),
-                    'results_returned': int(content.get('resultCount', 0))
-                }
+            if search_data['is_done']:
                 if include_raw:
                     search_data['raw_entry'] = entry
                 
@@ -103,6 +86,7 @@ def get_recent_searches_endpoint(minutes: int = 5, include_raw: bool = False):
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 # ==================== RUN ====================
 
