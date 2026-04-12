@@ -78,11 +78,14 @@ class SplunkAPI:
         }
     
     def get_recent_searches(self, minutes: int = 5) -> List[Dict]:
-        """Get recent search jobs"""
-        params = {
-            'count': 1000,
-            'status_buckets': minutes * 60
-        }
-        
-        data = self.get('/services/search/jobs', params=params)
-        return data.get('entry', [])
+    """Get recent search jobs"""
+    params = {
+        'count': 5000,
+        'status_buckets': minutes * 60
+    }
+    
+    data = self.get('/services/search/jobs', params=params)  ß
+    return data.get('entry', [])
+
+    
+    
