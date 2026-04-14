@@ -115,7 +115,6 @@ def get_recent_searches_endpoint(
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
 @app.get("/api/test/ai-analyze")
 def test_ai_analyze(
     search_spl: str,
@@ -157,8 +156,12 @@ def test_ai_analyze(
             'status': 'success',
             'search_data': search_data,
             'ai_analysis': ai_result['analysis'],
+            'optimized_spl': ai_result['optimized_spl'],
             'prompt_type': ai_result['prompt_type'],
-            'token_usage': ai_result['token_usage']
+            'token_usage': ai_result['token_usage'],
+            'finish_reason': ai_result.get('finish_reason'),
+            'truncated': ai_result.get('truncated', False),
+            'retry_count': ai_result.get('retry_count', 0)
         }
     
     except Exception as e:
@@ -211,8 +214,12 @@ async def analyze_search_by_id(search_id: str):
             'search_id': search_id,
             'search_data': search_data,
             'ai_analysis': ai_result['analysis'],
+            'optimized_spl': ai_result['optimized_spl'],
             'prompt_type': ai_result['prompt_type'],
-            'token_usage': ai_result['token_usage']
+            'token_usage': ai_result['token_usage'],
+            'finish_reason': ai_result.get('finish_reason'),
+            'truncated': ai_result.get('truncated', False),
+            'retry_count': ai_result.get('retry_count', 0)
         }
     
     except HTTPException:
