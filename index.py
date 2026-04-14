@@ -408,4 +408,68 @@ def get_search_from_history(search_id: str):
         GET /api/searches/history/1234567890.12345
     """
     try:
-        search = storage.get_search_by_id(s
+        search = storage.get_search_by_id(search_id)
+        
+        if not search:
+            raise HTTPException(status_code=404, detail=f"Search {search_id} not found in history")
+        
+        return {
+            'status': 'success',
+            'search': search
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/stats")
+def get_stats():
+    """
+    Get statistics about flagged searches
+    
+    Example:
+        GET /api/stats
+    """
+    try:
+        stats = storage.get_stats()
+        
+        return {
+            'status': 'success',
+            'stats': stats
+        }
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/storage/clear")
+def clear_storage():
+    """
+    Clear all stored searches (testing only)
+    
+    Example:
+        DELETE /api/storage/clear
+    """
+    try:
+        count = storage.clear_all()
+        
+        return {
+            'status': 'success',
+            'message': f'Cleared {count} searches from storage'
+        }
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== RUN ====================
+
+if __name__ == "__main__":
+    uvicorn.run(
+        "index:app",
+        host="0.0.0.0",
+        port=settings.INTERNAL_PORT,
+        reload=True
+    )
