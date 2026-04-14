@@ -1,13 +1,16 @@
 import uvicorn
 from fastapi import FastAPI, HTTPException
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from datetime import datetime, timezone
+from typing import Optional
 
 # Import from app modules
 from app.config import settings
 from app.core.splunk import SplunkAPI
 from app.core.detector import SearchAnalyzer
 from app.services.ai import AIAnalyzer
-
+from app.db.memory_storage import memory_storage as storage
 
 # Initialize FastAPI
 app = FastAPI(
@@ -16,9 +19,18 @@ app = FastAPI(
     version="0.1.0"
 )
 
-# Initialize Splunk API
+# Initialize Splunk API and AI Analyzer
 splunk_api = SplunkAPI()
 ai_analyzer = AIAnalyzer()
+
+# Serve static files
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# Serve UI at root
+@app.get("/")
+def serve_ui():
+    return FileResponse('static/index.html')
+
 
 # ==================== API ENDPOINTS ====================
 
@@ -42,7 +54,8 @@ def check_config():
         "splunk_host": settings.SPLUNK_HOST,
         "token_set": bool(token),
         "token_preview": masked,
-        "api_port": settings.API_PORT
+        "internal_port": settings.INTERNAL_PORT,
+        "azure_openai_configured": bool(settings.AZURE_API_KEY)
     }
 
 
@@ -58,10 +71,18 @@ def test_connection():
 
 @app.get("/api/searches/recent")
 def get_recent_searches_endpoint(
-    minutes: int = 5, 
+    minutes: int = 5,
     include_raw: bool = False,
-    only_problematic: bool = False 
+    only_problematic: bool = False
 ):
+    """
+    Get recent searches from Splunk
+    
+    Args:
+        minutes: Look back this many minutes (default: 5)
+        include_raw: Include raw entry from Splunk API (default: False)
+        only_problematic: Only return searches with issues (default: False)
+    """
     try:
         entries = splunk_api.get_recent_searches(minutes=minutes)
         
@@ -71,31 +92,30 @@ def get_recent_searches_endpoint(
         problematic_count = 0
         
         for entry in entries:
-          
+            # Parse search with metrics
             search_data = SearchAnalyzer.parse_search_entry(entry)
             
-            
+            # Count by type
             if search_data['is_saved_search']:
                 saved_count += 1
             else:
                 ad_hoc_count += 1
             
-            
+            # Only include completed searches
             if search_data['is_done']:
                 
-                
+                # Detect issues
                 issues = SearchAnalyzer.detect_issues(search_data)
-                
-                
                 search_data['issues'] = issues
                 
+                # Add severity
                 if issues:
                     problematic_count += 1
                     search_data['severity'] = SearchAnalyzer.calculate_severity(issues, search_data)
                 else:
                     search_data['severity'] = 'none'
                 
-                
+                # Filter if only_problematic requested
                 if only_problematic and not issues:
                     continue
                 
@@ -115,6 +135,10 @@ def get_recent_searches_endpoint(
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== AI ENDPOINTS ====================
+
 @app.get("/api/test/ai-analyze")
 def test_ai_analyze(
     search_spl: str,
@@ -169,7 +193,7 @@ def test_ai_analyze(
 
 
 @app.post("/api/searches/{search_id}/analyze")
-async def analyze_search_by_id(search_id: str):
+def analyze_search_by_id(search_id: str):
     """
     Analyze a specific search from recent searches
     
@@ -227,10 +251,13 @@ async def analyze_search_by_id(search_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+# ==================== STORAGE ENDPOINTS (IN-MEMORY) ====================
+
 @app.post("/api/searches/{search_id}/save")
-async def save_search_to_db(search_id: str):
+def save_search_to_storage(search_id: str):
     """
-    Save a flagged search to MongoDB (without AI analysis)
+    Save a flagged search to in-memory storage (without AI analysis)
     
     Example:
         POST /api/searches/1234567890.12345/save
@@ -261,14 +288,14 @@ async def save_search_to_db(search_id: str):
         else:
             search_data['severity'] = 'none'
         
-        # Save to MongoDB (without AI analysis)
-        doc_id = await mongodb.save_flagged_search(search_data)
+        # Save to storage (without AI analysis)
+        doc_id = storage.save_flagged_search(search_data)
         
         return {
             'status': 'success',
-            'message': 'Search saved to database',
+            'message': 'Search saved to storage',
             'search_id': search_id,
-            'document_id': doc_id
+            'storage_count': storage.get_count()
         }
     
     except HTTPException:
@@ -278,9 +305,9 @@ async def save_search_to_db(search_id: str):
 
 
 @app.post("/api/searches/{search_id}/analyze-and-save")
-async def analyze_and_save_search(search_id: str):
+def analyze_and_save_search(search_id: str):
     """
-    Analyze search with AI and save to MongoDB
+    Analyze search with AI and save to storage
     
     Example:
         POST /api/searches/1234567890.12345/analyze-and-save
@@ -318,14 +345,14 @@ async def analyze_and_save_search(search_id: str):
         # Get AI analysis
         ai_result = ai_analyzer.analyze_search(search_data)
         
-        # Save to MongoDB with AI analysis
-        doc_id = await mongodb.save_flagged_search(search_data, ai_result)
+        # Save to storage with AI analysis
+        doc_id = storage.save_flagged_search(search_data, ai_result)
         
         return {
             'status': 'success',
-            'message': 'Search analyzed and saved to database',
+            'message': 'Search analyzed and saved to storage',
             'search_id': search_id,
-            'document_id': doc_id,
+            'storage_count': storage.get_count(),
             'ai_analysis': ai_result['analysis'],
             'optimized_spl': ai_result['optimized_spl'],
             'token_usage': ai_result['token_usage']
@@ -338,13 +365,13 @@ async def analyze_and_save_search(search_id: str):
 
 
 @app.get("/api/searches/history")
-async def get_search_history(
+def get_search_history(
     limit: int = 100,
     severity: Optional[str] = None,
     has_ai_analysis: Optional[bool] = None
 ):
     """
-    Get flagged search history from MongoDB
+    Get flagged search history from storage
     
     Args:
         limit: Max results (default 100)
@@ -355,7 +382,7 @@ async def get_search_history(
         GET /api/searches/history?limit=50&severity=critical
     """
     try:
-        searches = await mongodb.get_recent_flagged_searches(
+        searches = storage.get_recent_flagged_searches(
             limit=limit,
             severity=severity,
             has_ai_analysis=has_ai_analysis
@@ -364,6 +391,7 @@ async def get_search_history(
         return {
             'status': 'success',
             'count': len(searches),
+            'total_stored': storage.get_count(),
             'searches': searches
         }
     
@@ -372,7 +400,7 @@ async def get_search_history(
 
 
 @app.get("/api/searches/history/{search_id}")
-async def get_search_from_history(search_id: str):
+def get_search_from_history(search_id: str):
     """
     Get a specific search from history
     
@@ -380,46 +408,4 @@ async def get_search_from_history(search_id: str):
         GET /api/searches/history/1234567890.12345
     """
     try:
-        search = await mongodb.get_search_by_id(search_id)
-        
-        if not search:
-            raise HTTPException(status_code=404, detail=f"Search {search_id} not found in history")
-        
-        return {
-            'status': 'success',
-            'search': search
-        }
-    
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/api/stats")
-async def get_stats():
-    """
-    Get statistics about flagged searches
-    
-    Example:
-        GET /api/stats
-    """
-    try:
-        stats = await mongodb.get_stats()
-        
-        return {
-            'status': 'success',
-            'stats': stats
-        }
-    
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-# ==================== RUN ====================
-
-if __name__ == "__main__":
-    uvicorn.run(
-        "index:app",
-        host="0.0.0.0",ß
-        port=settings.API_PORT,
-        reload=True
-    )
+        search = storage.get_search_by_id(s
