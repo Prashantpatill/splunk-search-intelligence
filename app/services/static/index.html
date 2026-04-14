@@ -1,0 +1,710 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Columbus - Splunk Search Intelligence</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #0f1419;
+            color: #e6edf3;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        header {
+            background: #161b22;
+            padding: 20px 30px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border: 1px solid #30363d;
+        }
+
+        h1 {
+            color: #58a6ff;
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .stat-card {
+            background: #161b22;
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid #30363d;
+        }
+
+        .stat-number {
+            font-size: 32px;
+            font-weight: bold;
+            color: #58a6ff;
+        }
+
+        .stat-label {
+            color: #8b949e;
+            margin-top: 5px;
+        }
+
+        .severity-critical { color: #f85149; }
+        .severity-high { color: #ff8c00; }
+        .severity-medium { color: #d29922; }
+        .severity-low { color: #3fb950; }
+
+        .filters {
+            background: #161b22;
+            padding: 15px 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border: 1px solid #30363d;
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+
+        select, button {
+            background: #21262d;
+            color: #e6edf3;
+            border: 1px solid #30363d;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        button:hover {
+            background: #30363d;
+        }
+
+        button.primary {
+            background: #238636;
+            border-color: #238636;
+        }
+
+        button.primary:hover {
+            background: #2ea043;
+        }
+
+        table {
+            width: 100%;
+            background: #161b22;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid #30363d;
+        }
+
+        thead {
+            background: #21262d;
+        }
+
+        th {
+            padding: 12px 15px;
+            text-align: left;
+            font-weight: 600;
+            color: #8b949e;
+            font-size: 12px;
+            text-transform: uppercase;
+        }
+
+        td {
+            padding: 12px 15px;
+            border-top: 1px solid #30363d;
+        }
+
+        tbody tr {
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        tbody tr:hover {
+            background: #21262d;
+        }
+
+        .code {
+            background: #0d1117;
+            padding: 3px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            color: #79c0ff;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .badge-critical {
+            background: #da36331a;
+            color: #f85149;
+        }
+
+        .badge-high {
+            background: #ff8c001a;
+            color: #ff8c00;
+        }
+
+        .badge-medium {
+            background: #d299221a;
+            color: #d29922;
+        }
+
+        .badge-low {
+            background: #3fb9501a;
+            color: #3fb950;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.8);
+            z-index: 1000;
+            padding: 20px;
+            overflow-y: auto;
+        }
+
+        .modal.active {
+            display: flex;
+            align-items: flex-start;
+            justify-content: center;
+        }
+
+        .modal-content {
+            background: #161b22;
+            border-radius: 8px;
+            border: 1px solid #30363d;
+            max-width: 900px;
+            width: 100%;
+            margin: 40px auto;
+            padding: 30px;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .close-btn {
+            background: none;
+            border: none;
+            color: #8b949e;
+            font-size: 24px;
+            cursor: pointer;
+            padding: 0;
+            width: 30px;
+            height: 30px;
+        }
+
+        .close-btn:hover {
+            color: #e6edf3;
+        }
+
+        .section {
+            margin-bottom: 25px;
+        }
+
+        .section-title {
+            color: #8b949e;
+            font-size: 12px;
+            text-transform: uppercase;
+            margin-bottom: 8px;
+            font-weight: 600;
+        }
+
+        .spl-box {
+            background: #0d1117;
+            padding: 15px;
+            border-radius: 6px;
+            border: 1px solid #30363d;
+            position: relative;
+            margin-top: 10px;
+        }
+
+        .spl-box pre {
+            margin: 0;
+            color: #79c0ff;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .copy-btn {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            padding: 4px 8px;
+            font-size: 11px;
+        }
+
+        .analysis {
+            background: #0d1117;
+            padding: 20px;
+            border-radius: 6px;
+            border: 1px solid #30363d;
+            line-height: 1.6;
+        }
+
+        .analysis h2 {
+            color: #58a6ff;
+            font-size: 18px;
+            margin: 20px 0 10px 0;
+        }
+
+        .analysis h2:first-child {
+            margin-top: 0;
+        }
+
+        .analysis ul, .analysis ol {
+            margin-left: 20px;
+            margin-top: 10px;
+        }
+
+        .analysis li {
+            margin: 5px 0;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #8b949e;
+        }
+
+        .empty {
+            text-align: center;
+            padding: 60px;
+            color: #8b949e;
+        }
+
+        .metrics {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .metric {
+            background: #0d1117;
+            padding: 12px;
+            border-radius: 6px;
+            border: 1px solid #30363d;
+        }
+
+        .metric-label {
+            font-size: 11px;
+            color: #8b949e;
+            margin-bottom: 5px;
+        }
+
+        .metric-value {
+            font-size: 18px;
+            font-weight: bold;
+            color: #e6edf3;
+        }
+
+        .issues-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+        }
+
+        .issue-tag {
+            background: #30363d;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            color: #e6edf3;
+        }
+
+        .auto-refresh {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: #8b949e;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🔍 Columbus - Splunk Search Intelligence</h1>
+            <p style="color: #8b949e; margin-top: 5px;">AI-powered search optimization and anomaly detection</p>
+        </header>
+
+        <div class="stats" id="stats">
+            <div class="stat-card">
+                <div class="stat-number" id="totalFlagged">-</div>
+                <div class="stat-label">Flagged Searches</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="aiAnalyzed">-</div>
+                <div class="stat-label">AI Analyzed</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number severity-critical" id="criticalCount">-</div>
+                <div class="stat-label">Critical Issues</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number severity-high" id="highCount">-</div>
+                <div class="stat-label">High Priority</div>
+            </div>
+        </div>
+
+        <div class="filters">
+            <label for="severityFilter">Severity:</label>
+            <select id="severityFilter">
+                <option value="">All</option>
+                <option value="critical">Critical</option>
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+            </select>
+
+            <label for="aiFilter">AI Analysis:</label>
+            <select id="aiFilter">
+                <option value="">All</option>
+                <option value="true">Analyzed</option>
+                <option value="false">Not Analyzed</option>
+            </select>
+
+            <button class="primary" onclick="loadHistory()">🔄 Refresh</button>
+
+            <div class="auto-refresh" style="margin-left: auto;">
+                <input type="checkbox" id="autoRefresh" checked>
+                <label for="autoRefresh">Auto-refresh (30s)</label>
+            </div>
+        </div>
+
+        <div id="tableContainer">
+            <div class="loading">Loading flagged searches...</div>
+        </div>
+    </div>
+
+    <!-- Modal for search details -->
+    <div class="modal" id="detailModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modalTitle">Search Details</h2>
+                <button class="close-btn" onclick="closeModal()">&times;</button>
+            </div>
+            <div id="modalBody"></div>
+        </div>
+    </div>
+
+    <script>
+        let autoRefreshInterval = null;
+
+        // Load stats
+        async function loadStats() {
+            try {
+                const response = await fetch('/api/stats');
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    const stats = data.stats;
+                    document.getElementById('totalFlagged').textContent = stats.total_flagged || 0;
+                    document.getElementById('aiAnalyzed').textContent = stats.ai_analyzed_count || 0;
+                    document.getElementById('criticalCount').textContent = stats.severity_breakdown?.critical || 0;
+                    document.getElementById('highCount').textContent = stats.severity_breakdown?.high || 0;
+                }
+            } catch (error) {
+                console.error('Error loading stats:', error);
+            }
+        }
+
+        // Load history
+        async function loadHistory() {
+            const severity = document.getElementById('severityFilter').value;
+            const aiAnalyzed = document.getElementById('aiFilter').value;
+            
+            let url = '/api/searches/history?limit=100';
+            if (severity) url += `&severity=${severity}`;
+            if (aiAnalyzed) url += `&has_ai_analysis=${aiAnalyzed}`;
+
+            try {
+                const response = await fetch(url);
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    renderTable(data.searches);
+                }
+            } catch (error) {
+                console.error('Error loading history:', error);
+                document.getElementById('tableContainer').innerHTML = 
+                    '<div class="empty">Error loading searches. Make sure the API is running.</div>';
+            }
+        }
+
+        // Render table
+        function renderTable(searches) {
+            if (searches.length === 0) {
+                document.getElementById('tableContainer').innerHTML = 
+                    '<div class="empty">No flagged searches found. Run some problematic searches in Splunk!</div>';
+                return;
+            }
+
+            const table = `
+                <table>
+                    <thead>
+                        <tr>
+                            <th>User</th>
+                            <th>Search Query</th>
+                            <th>Issues</th>
+                            <th>Severity</th>
+                            <th>Runtime</th>
+                            <th>Events</th>
+                            <th>AI</th>
+                            <th>Time</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${searches.map(s => `
+                            <tr onclick="showDetails('${s.search_id}')">
+                                <td>${s.user}</td>
+                                <td><span class="code">${truncate(s.search_spl, 50)}</span></td>
+                                <td>${s.issues.length}</td>
+                                <td><span class="badge badge-${s.severity}">${s.severity}</span></td>
+                                <td>${s.runtime}s</td>
+                                <td>${formatNumber(s.events_scanned)}</td>
+                                <td>${s.ai_analyzed ? '✅' : '❌'}</td>
+                                <td>${timeAgo(s.flagged_at)}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+            
+            document.getElementById('tableContainer').innerHTML = table;
+        }
+
+        // Show details modal
+        async function showDetails(searchId) {
+            try {
+                const response = await fetch(`/api/searches/history/${searchId}`);
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    const search = data.search;
+                    renderModal(search);
+                }
+            } catch (error) {
+                console.error('Error loading search details:', error);
+            }
+        }
+
+        // Render modal
+        function renderModal(search) {
+            const hasAI = search.ai_analyzed;
+            
+            let modalHTML = `
+                <div class="metrics">
+                    <div class="metric">
+                        <div class="metric-label">Runtime</div>
+                        <div class="metric-value">${search.runtime}s</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-label">Events Scanned</div>
+                        <div class="metric-value">${formatNumber(search.events_scanned)}</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-label">Results</div>
+                        <div class="metric-value">${formatNumber(search.results_returned)}</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-label">Scan Ratio</div>
+                        <div class="metric-value">${formatNumber(search.scan_ratio)}:1</div>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <div class="section-title">Original Search</div>
+                    <div class="spl-box">
+                        <button class="copy-btn" onclick="copyToClipboard(\`${escapeHtml(search.search_spl)}\`, this)">Copy</button>
+                        <pre>${escapeHtml(search.search_spl)}</pre>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <div class="section-title">Issues Detected (${search.issues.length})</div>
+                    <div class="issues-list">
+                        ${search.issues.map(i => `<span class="issue-tag">${i.replace(/_/g, ' ')}</span>`).join('')}
+                    </div>
+                </div>
+            `;
+
+            if (hasAI) {
+                modalHTML += `
+                    <div class="section">
+                        <div class="section-title">Optimized Search (AI Generated)</div>
+                        <div class="spl-box">
+                            <button class="copy-btn" onclick="copyToClipboard(\`${escapeHtml(search.optimized_spl)}\`, this)">Copy</button>
+                            <pre>${escapeHtml(search.optimized_spl)}</pre>
+                        </div>
+                    </div>
+
+                    <div class="section">
+                        <div class="section-title">AI Analysis</div>
+                        <div class="analysis">${marked(search.ai_analysis)}</div>
+                    </div>
+
+                    <div class="section">
+                        <div class="section-title">Token Usage</div>
+                        <div class="metric" style="display: inline-block;">
+                            <div class="metric-label">Total Tokens</div>
+                            <div class="metric-value">${search.token_usage?.total_tokens || 'N/A'}</div>
+                        </div>
+                    </div>
+                `;
+            } else {
+                modalHTML += `
+                    <div class="section">
+                        <button class="primary" onclick="analyzeSearch('${search.search_id}')">🤖 Analyze with AI</button>
+                    </div>
+                `;
+            }
+
+            document.getElementById('modalBody').innerHTML = modalHTML;
+            document.getElementById('detailModal').classList.add('active');
+        }
+
+        // Analyze search with AI
+        async function analyzeSearch(searchId) {
+            const btn = event.target;
+            btn.textContent = '⏳ Analyzing...';
+            btn.disabled = true;
+
+            try {
+                const response = await fetch(`/api/searches/${searchId}/analyze-and-save`, {
+                    method: 'POST'
+                });
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    // Reload details
+                    showDetails(searchId);
+                    loadStats();
+                    loadHistory();
+                }
+            } catch (error) {
+                console.error('Error analyzing search:', error);
+                btn.textContent = '❌ Error';
+                setTimeout(() => {
+                    btn.textContent = '🤖 Analyze with AI';
+                    btn.disabled = false;
+                }, 2000);
+            }
+        }
+
+        // Close modal
+        function closeModal() {
+            document.getElementById('detailModal').classList.remove('active');
+        }
+
+        // Copy to clipboard
+        function copyToClipboard(text, btn) {
+            navigator.clipboard.writeText(text);
+            const original = btn.textContent;
+            btn.textContent = '✓ Copied!';
+            setTimeout(() => btn.textContent = original, 2000);
+        }
+
+        // Utility functions
+        function truncate(str, length) {
+            return str.length > length ? str.substring(0, length) + '...' : str;
+        }
+
+        function formatNumber(num) {
+            return num.toLocaleString();
+        }
+
+        function timeAgo(isoString) {
+            const date = new Date(isoString);
+            const seconds = Math.floor((new Date() - date) / 1000);
+            
+            if (seconds < 60) return 'just now';
+            if (seconds < 3600) return Math.floor(seconds / 60) + 'm ago';
+            if (seconds < 86400) return Math.floor(seconds / 3600) + 'h ago';
+            return Math.floor(seconds / 86400) + 'd ago';
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Simple markdown to HTML (basic)
+        function marked(text) {
+            return text
+                .replace(/## (.*)/g, '<h2>$1</h2>')
+                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                .replace(/```spl\n([\s\S]*?)\n```/g, '<pre style="background:#0d1117;padding:10px;border-radius:4px;overflow-x:auto;"><code>$1</code></pre>')
+                .replace(/```\n([\s\S]*?)\n```/g, '<pre style="background:#0d1117;padding:10px;border-radius:4px;overflow-x:auto;"><code>$1</code></pre>')
+                .replace(/• (.*)/g, '<li>$1</li>')
+                .replace(/\n/g, '<br>');
+        }
+
+        // Auto-refresh
+        function setupAutoRefresh() {
+            const checkbox = document.getElementById('autoRefresh');
+            
+            if (checkbox.checked) {
+                autoRefreshInterval = setInterval(() => {
+                    loadStats();
+                    loadHistory();
+                }, 30000); // 30 seconds
+            }
+        }
+
+        document.getElementById('autoRefresh').addEventListener('change', function() {
+            if (autoRefreshInterval) {
+                clearInterval(autoRefreshInterval);
+                autoRefreshInterval = null;
+            }
+            if (this.checked) {
+                setupAutoRefresh();
+            }
+        });
+
+        // Event listeners
+        document.getElementById('severityFilter').addEventListener('change', loadHistory);
+        document.getElementById('aiFilter').addEventListener('change', loadHistory);
+
+        // Close modal on escape
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') closeModal();
+        });
+
+        // Initial load
+        loadStats();
+        loadHistory();
+        setupAutoRefresh();
+    </script>
+</body>
+</html>
