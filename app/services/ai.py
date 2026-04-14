@@ -4,15 +4,18 @@ from openai import AzureOpenAI
 from app.config import settings
 
 class AIAnalyzer:
+   
     
     def __init__(self):
-        """Initialize Azure OpenAI client"""
+       
         self.client = AzureOpenAI(
             azure_endpoint=settings.AZURE_OPENAI_ENDPOINT,
             api_key=settings.AZURE_API_KEY,
             api_version=settings.AZURE_API_VERSION
         )
         self.model = settings.AZURE_MODEL_NAME
+    
+   
     
     @staticmethod
     def _build_multi_issue_prompt(search_data: Dict) -> str:
@@ -223,6 +226,7 @@ FORMAT:
 ## Benefit
 [Improvement]"""
     
+
     
     @staticmethod
     def _select_prompt(search_data: Dict) -> str:
@@ -233,11 +237,11 @@ FORMAT:
         if not issues:
             return AIAnalyzer._build_general_analysis_prompt(search_data)
         
-
+       
         if len(issues) > 1:
             return AIAnalyzer._build_multi_issue_prompt(search_data)
         
-
+    
         single_issue = issues[0]
         
         if single_issue == 'index_wildcard':
@@ -263,14 +267,14 @@ FORMAT:
     def _extract_optimized_spl(ai_response: str) -> str:
         """Extract optimized SPL from AI response"""
         
-  
+        # Look for ```spl ... ```
         spl_pattern = r'```spl\s+(.*?)\s+```'
         match = re.search(spl_pattern, ai_response, re.DOTALL | re.IGNORECASE)
         
         if match:
             return match.group(1).strip()
         
-        
+        # Look for any ``` ... ``` with SPL
         generic_pattern = r'```\s+(.*?)\s+```'
         matches = re.findall(generic_pattern, ai_response, re.DOTALL)
         
@@ -280,14 +284,14 @@ FORMAT:
         
         return ""
     
-    
+  
     
     def analyze_search(self, search_data: Dict, prompt_type: str = "auto") -> Dict:
-        """Analyze search using Azure OpenAI"""
+        """Analyze search using Azure OpenAI with debug logging"""
         
         issues = search_data.get('issues', [])
         
-
+    
         if not issues:
             return {
                 "analysis": "No performance issues detected.",
@@ -298,6 +302,7 @@ FORMAT:
                 "skipped": True
             }
         
+  
         if prompt_type == "auto":
             prompt = self._select_prompt(search_data)
             
@@ -327,38 +332,65 @@ FORMAT:
             
             selected_type = prompt_type
         
-        # Call Gemini
+
         try:
+            print(f"\n========== DEBUG: AI ANALYSIS REQUEST ==========")
+            print(f"Prompt type: {selected_type}")
+            print(f"Issues: {issues}")
+            print(f"Prompt length: {len(prompt)} chars")
+            print(f"Prompt preview: {prompt[:300]}...")
+            
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": "Splunk expert. Follow FORMAT exactly. Use markdown (##, ```spl```). Be concise, specific, actionable."},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.4,
-                max_tokens=1000,
-                top_p=0.95,
-                presence_penalty=0.1,
-                frequency_penalty=0.1
+                temperature=0.0,
+                max_tokens=1500,
+                top_p=1.0,
+                presence_penalty=0.0,
+                frequency_penalty=0.0
             )
+            print(f"\n========== DEBUG: AI RESPONSE ==========")
+            print(f"Finish reason: {response.choices[0].finish_reason}")
+            print(f"Prompt tokens: {response.usage.prompt_tokens}")
+            print(f"Completion tokens: {response.usage.completion_tokens}")
+            print(f"Total tokens (reported): {response.usage.total_tokens}")
+            print(f"Total tokens (calculated): {response.usage.prompt_tokens + response.usage.completion_tokens}")
+            print(f"Response length: {len(response.choices[0].message.content)} chars")
+            print(f"Response preview: {response.choices[0].message.content[:500]}...")
+            print(f"Response end: ...{response.choices[0].message.content[-200:]}")
+            print(f"==========================================\n")
             
             ai_analysis = response.choices[0].message.content
             optimized_spl = self._extract_optimized_spl(ai_analysis)
+            
+            # Calculate tokens ourselves
+            prompt_tokens = response.usage.prompt_tokens
+            completion_tokens = response.usage.completion_tokens
+            total_tokens = prompt_tokens + completion_tokens
             
             return {
                 "analysis": ai_analysis,
                 "optimized_spl": optimized_spl,
                 "prompt_type": selected_type,
                 "token_usage": {
-                    "prompt_tokens": response.usage.prompt_tokens,
-                    "completion_tokens": response.usage.completion_tokens,
-                    "total_tokens": response.usage.total_tokens
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
+                    "total_tokens": total_tokens
                 },
                 "model": self.model,
+                "finish_reason": response.choices[0].finish_reason,
                 "skipped": False
             }
             
         except Exception as e:
+            print(f"\n========== DEBUG: ERROR ==========")
+            print(f"Error type: {type(e).__name__}")
+            print(f"Error message: {str(e)}")
+            print(f"===================================\n")
+            
             return {
                 "analysis": f"Error: {str(e)}",
                 "optimized_spl": "",
