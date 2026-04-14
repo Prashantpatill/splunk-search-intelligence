@@ -1,9 +1,9 @@
 from typing import Dict
+import re
 from openai import AzureOpenAI
 from app.config import settings
 
 class AIAnalyzer:
-    
     
     def __init__(self):
         """Initialize Azure OpenAI client"""
@@ -14,10 +14,9 @@ class AIAnalyzer:
         )
         self.model = settings.AZURE_MODEL_NAME
     
-    
     @staticmethod
-    def _build_general_analysis_prompt(search_data: Dict) -> str:
-       
+    def _build_multi_issue_prompt(search_data: Dict) -> str:
+        """Comprehensive prompt for multiple issues"""
         
         spl = search_data['search_spl']
         runtime = search_data['runtime']
@@ -27,62 +26,84 @@ class AIAnalyzer:
         issues = search_data.get('issues', [])
         severity = search_data.get('severity', 'unknown')
         
-        issues_formatted = ', '.join(issues) if issues else 'None'
+        issues_list = ', '.join([issue.replace('_', ' ') for issue in issues])
         
-        return f"""Analyze this Splunk search performance issue.
+        return f"""Fix ALL performance issues.
 
-CURRENT SEARCH:
-```spl
-{spl}
-```
+CURRENT: {spl}
 
-METRICS:
-- Runtime: {runtime}s
-- Events Scanned: {events:,}
-- Results Returned: {results:,}
-- Scan Ratio: {scan_ratio:.0f}:1
-- Severity: {severity}
-- Issues: {issues_formatted}
+METRICS: Runtime {runtime}s, Events {events:,}, Results {results:,}, Ratio {scan_ratio:.0f}:1, Severity {severity}
 
-OUTPUT FORMAT:
-## Problem
-[Root cause in 1-2 sentences]
+ISSUES: {issues_list}
+
+FORMAT:
+## Problems
+[Brief explanation]
 
 ## Optimized Query
 ```spl
-[Rewritten SPL with improvements]
+[Complete rewritten SPL]
 ```
 
-## Key Changes
-- [Change 1]
-- [Change 2]
-- [Change 3]
+## Changes
+[List fixes]
 
-## Expected Impact
-[Estimated performance improvement]"""
+## Impact
+[Performance improvement]"""
+    
+    @staticmethod
+    def _build_general_analysis_prompt(search_data: Dict) -> str:
+        """General analysis prompt"""
+        
+        spl = search_data['search_spl']
+        runtime = search_data['runtime']
+        events = search_data['events_scanned']
+        results = search_data['results_returned']
+        scan_ratio = search_data['scan_ratio']
+        issues = search_data.get('issues', [])
+        
+        issues_formatted = ', '.join(issues) if issues else 'None'
+        
+        return f"""Analyze Splunk search performance.
+
+CURRENT: {spl}
+
+METRICS: Runtime {runtime}s, Events {events:,}, Results {results:,}, Ratio {scan_ratio:.0f}:1, Issues {issues_formatted}
+
+FORMAT:
+## Problem
+[Root cause]
+
+## Optimized Query
+```spl
+[Rewritten SPL]
+```
+
+## Changes
+[List changes]
+
+## Impact
+[Performance gain]"""
     
     @staticmethod
     def _build_index_wildcard_prompt(search_data: Dict) -> str:
-        """Index wildcard optimization prompt"""
+        """Index wildcard optimization"""
         
         spl = search_data['search_spl']
         events = search_data['events_scanned']
         
-        return f"""Fix index=* wildcard issue.
+        return f"""Fix index=* wildcard.
 
-CURRENT:
-```spl
-{spl}
-```
+CURRENT: {spl}
 
-PROBLEM: Searches all indexes ({events:,} events scanned)
+PROBLEM: Searches all indexes ({events:,} events)
 
-OUTPUT FORMAT:
+FORMAT:
 ## Analysis
-[Identify data sources from search logic]
+[Identify data source]
 
 ## Recommended Index
-[Specific index name: index=X]
+[Specific index]
 
 ## Optimized Query
 ```spl
@@ -90,39 +111,33 @@ OUTPUT FORMAT:
 ```
 
 ## Impact
-Events scanned: {events:,} → [estimated new count]
-Performance gain: [X]x faster"""
+Events {events:,} to [estimated], [X]x faster"""
     
     @staticmethod
     def _build_no_time_constraint_prompt(search_data: Dict) -> str:
-        """No time constraint optimization prompt"""
+        """No time constraint optimization"""
         
         spl = search_data['search_spl']
         runtime = search_data['runtime']
         events = search_data['events_scanned']
         
-        return f"""Add time constraints to all-time search.
+        return f"""Add time constraints.
 
-CURRENT:
-```spl
-{spl}
-```
+CURRENT: {spl}
 
-PROBLEM: No time bounds (searched {events:,} events, {runtime}s runtime)
+PROBLEM: No time bounds ({events:,} events, {runtime}s)
 
-OUTPUT FORMAT:
-## Recommended Time Range
-[Appropriate earliest/latest based on search purpose]
+FORMAT:
+## Recommended Time
+[Appropriate timespan]
 
 ## Optimized Query
 ```spl
-[Add earliest/latest to the query]
+[Query with time bounds]
 ```
 
 ## Impact
-- Scanned: {events:,} → [estimated]
-- Runtime: {runtime}s → [estimated]s
-- Speedup: [X]x faster"""
+Events {events:,} to [est], Runtime {runtime}s to [est]s, [X]x faster"""
     
     @staticmethod
     def _build_transaction_optimization_prompt(search_data: Dict) -> str:
@@ -130,29 +145,26 @@ OUTPUT FORMAT:
         
         spl = search_data['search_spl']
         
-        return f"""Replace transaction with stats-based alternative.
+        return f"""Replace transaction with stats.
 
-CURRENT:
-```spl
-{spl}
-```
+CURRENT: {spl}
 
-PROBLEM: transaction is memory-intensive and slow
+PROBLEM: transaction is memory-intensive
 
-OUTPUT FORMAT:
-## Why Transaction is Slow
-[1 sentence explanation]
+FORMAT:
+## Why Slow
+[1 sentence]
 
 ## Stats Alternative
 ```spl
-[Rewritten using stats/streamstats/eventstats]
+[Rewritten using stats]
 ```
 
 ## How It Works
-[Brief explanation of the stats approach]
+[Brief explanation]
 
-## Performance Gain
-[Memory usage and speed improvement]"""
+## Gain
+[Improvement]"""
     
     @staticmethod
     def _build_poor_scan_ratio_prompt(search_data: Dict) -> str:
@@ -165,31 +177,24 @@ OUTPUT FORMAT:
         
         return f"""Improve scan efficiency.
 
-CURRENT:
-```spl
-{spl}
-```
+CURRENT: {spl}
 
-EFFICIENCY ISSUE:
-- Scanned: {events:,} events
-- Returned: {results:,} results
-- Ratio: {scan_ratio:.0f}:1 (inefficient)
+ISSUE: Scanned {events:,}, Returned {results:,}, Ratio {scan_ratio:.0f}:1
 
-OUTPUT FORMAT:
+FORMAT:
 ## Root Cause
-[Why so many events scanned for few results]
+[Why inefficient]
 
-## Optimization Strategy
-[Filters to add early in pipeline]
+## Strategy
+[Filters to add]
 
 ## Optimized Query
 ```spl
-[Rewritten with better filtering]
+[Rewritten]
 ```
 
-## New Efficiency
-- New ratio: [estimated ratio]
-- Events saved: {events:,} → [estimated]"""
+## Efficiency
+New ratio [est], Events saved [est]"""
     
     @staticmethod
     def _build_join_optimization_prompt(search_data: Dict) -> str:
@@ -197,137 +202,169 @@ OUTPUT FORMAT:
         
         spl = search_data['search_spl']
         
-        return f"""Replace join with stats correlation.
+        return f"""Replace join with stats.
 
-CURRENT:
-```spl
-{spl}
-```
+CURRENT: {spl}
 
-PROBLEM: join creates Cartesian products, memory-intensive
+PROBLEM: join creates Cartesian products
 
-OUTPUT FORMAT:
-## Why Avoid Join
+FORMAT:
+## Why Avoid
 [1 sentence]
 
 ## Stats Alternative
 ```spl
-[Rewritten using stats correlation]
+[Rewritten]
 ```
 
-## How It Works
-[Explanation of correlation approach]
+## Works
+[Explanation]
 
 ## Benefit
-[Performance and memory improvement]"""
+[Improvement]"""
     
-    # ==================== PROMPT SELECTOR ====================
     
     @staticmethod
     def _select_prompt(search_data: Dict) -> str:
-        """
-        Select the most appropriate prompt based on issues
-        
-        Priority order (most specific to general):
-        1. No time constraint (critical)
-        2. Index wildcard (high impact)
-        3. Transaction command (specific fix)
-        4. Join command (specific fix)
-        5. Poor scan ratio (optimization)
-        6. General analysis (fallback)
-        """
+        """Select prompt based on number of issues"""
         
         issues = search_data.get('issues', [])
         
-        # Priority order - most critical first
-        if 'no_time_constraint' in issues:
-            return AIAnalyzer._build_no_time_constraint_prompt(search_data)
+        if not issues:
+            return AIAnalyzer._build_general_analysis_prompt(search_data)
         
-        if 'index_wildcard' in issues:
+
+        if len(issues) > 1:
+            return AIAnalyzer._build_multi_issue_prompt(search_data)
+        
+
+        single_issue = issues[0]
+        
+        if single_issue == 'index_wildcard':
             return AIAnalyzer._build_index_wildcard_prompt(search_data)
         
-        if 'uses_transaction' in issues:
+        if single_issue == 'no_time_constraint':
+            return AIAnalyzer._build_no_time_constraint_prompt(search_data)
+        
+        if single_issue == 'uses_transaction':
             return AIAnalyzer._build_transaction_optimization_prompt(search_data)
         
-        if 'uses_join' in issues:
+        if single_issue == 'uses_join':
             return AIAnalyzer._build_join_optimization_prompt(search_data)
         
-        if 'very_poor_scan_ratio' in issues or 'poor_scan_ratio' in issues:
+        if single_issue in ['poor_scan_ratio', 'very_poor_scan_ratio']:
             return AIAnalyzer._build_poor_scan_ratio_prompt(search_data)
         
         return AIAnalyzer._build_general_analysis_prompt(search_data)
     
-    # ==================== MAIN ANALYSIS METHOD ====================
+
+    
+    @staticmethod
+    def _extract_optimized_spl(ai_response: str) -> str:
+        """Extract optimized SPL from AI response"""
+        
+  
+        spl_pattern = r'```spl\s+(.*?)\s+```'
+        match = re.search(spl_pattern, ai_response, re.DOTALL | re.IGNORECASE)
+        
+        if match:
+            return match.group(1).strip()
+        
+        
+        generic_pattern = r'```\s+(.*?)\s+```'
+        matches = re.findall(generic_pattern, ai_response, re.DOTALL)
+        
+        for code_block in matches:
+            if any(kw in code_block.lower() for kw in ['index=', '|', 'search', 'stats', 'where']):
+                return code_block.strip()
+        
+        return ""
+    
+    
     
     def analyze_search(self, search_data: Dict, prompt_type: str = "auto") -> Dict:
+        """Analyze search using Azure OpenAI"""
+        
+        issues = search_data.get('issues', [])
+        
+
+        if not issues:
+            return {
+                "analysis": "No performance issues detected.",
+                "optimized_spl": "",
+                "prompt_type": "none",
+                "token_usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                "model": self.model,
+                "skipped": True
+            }
         
         if prompt_type == "auto":
             prompt = self._select_prompt(search_data)
-            selected_type = "auto_selected"
-        elif prompt_type == "general":
-            prompt = self._build_general_analysis_prompt(search_data)
-            selected_type = "general"
-        elif prompt_type == "index_wildcard":
-            prompt = self._build_index_wildcard_prompt(search_data)
-            selected_type = "index_wildcard"
-        elif prompt_type == "no_time":
-            prompt = self._build_no_time_constraint_prompt(search_data)
-            selected_type = "no_time"
-        elif prompt_type == "transaction":
-            prompt = self._build_transaction_optimization_prompt(search_data)
-            selected_type = "transaction"
-        elif prompt_type == "join":
-            prompt = self._build_join_optimization_prompt(search_data)
-            selected_type = "join"
-        elif prompt_type == "scan_ratio":
-            prompt = self._build_poor_scan_ratio_prompt(search_data)
-            selected_type = "scan_ratio"
+            
+            if len(issues) > 1:
+                selected_type = f"multi_issue_{len(issues)}_issues"
+            elif len(issues) == 1:
+                selected_type = f"single_issue_{issues[0]}"
+            else:
+                selected_type = "general"
         else:
-            prompt = self._build_general_analysis_prompt(search_data)
-            selected_type = "general"
+            if prompt_type == "multi_issue":
+                prompt = self._build_multi_issue_prompt(search_data)
+            elif prompt_type == "general":
+                prompt = self._build_general_analysis_prompt(search_data)
+            elif prompt_type == "index_wildcard":
+                prompt = self._build_index_wildcard_prompt(search_data)
+            elif prompt_type == "no_time":
+                prompt = self._build_no_time_constraint_prompt(search_data)
+            elif prompt_type == "transaction":
+                prompt = self._build_transaction_optimization_prompt(search_data)
+            elif prompt_type == "join":
+                prompt = self._build_join_optimization_prompt(search_data)
+            elif prompt_type == "scan_ratio":
+                prompt = self._build_poor_scan_ratio_prompt(search_data)
+            else:
+                prompt = self._build_general_analysis_prompt(search_data)
+            
+            selected_type = prompt_type
         
+        # Call Gemini
         try:
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
-                    {
-                        "role": "system",
-                        "content": (
-                            "You are a Splunk performance expert. "
-                            "Follow the OUTPUT FORMAT exactly. "
-                            "Use markdown headers (##) and code blocks (```spl```). "
-                            "Be concise but professional. "
-                            "Provide specific, actionable improvements."
-                        )
-                    },
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
+                    {"role": "system", "content": "Splunk expert. Follow FORMAT exactly. Use markdown (##, ```spl```). Be concise, specific, actionable."},
+                    {"role": "user", "content": prompt}
                 ],
-                temperature=0.4,      
-                max_tokens=600,       
-                top_p=0.95,          
-                presence_penalty=0.1, 
-                frequency_penalty=0.1 
+                temperature=0.4,
+                max_tokens=1000,
+                top_p=0.95,
+                presence_penalty=0.1,
+                frequency_penalty=0.1
             )
             
+            ai_analysis = response.choices[0].message.content
+            optimized_spl = self._extract_optimized_spl(ai_analysis)
+            
             return {
-                "analysis": response.choices[0].message.content,
+                "analysis": ai_analysis,
+                "optimized_spl": optimized_spl,
                 "prompt_type": selected_type,
                 "token_usage": {
                     "prompt_tokens": response.usage.prompt_tokens,
                     "completion_tokens": response.usage.completion_tokens,
                     "total_tokens": response.usage.total_tokens
                 },
-                "model": self.model
+                "model": self.model,
+                "skipped": False
             }
             
         except Exception as e:
             return {
-                "analysis": f"**Error:** {str(e)}",
+                "analysis": f"Error: {str(e)}",
+                "optimized_spl": "",
                 "prompt_type": selected_type,
                 "token_usage": None,
                 "model": self.model,
-                "error": str(e)
+                "error": str(e),
+                "skipped": False
             }
