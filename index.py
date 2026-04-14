@@ -227,7 +227,193 @@ async def analyze_search_by_id(search_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/api/searches/{search_id}/save")
+async def save_search_to_db(search_id: str):
+    """
+    Save a flagged search to MongoDB (without AI analysis)
+    
+    Example:
+        POST /api/searches/1234567890.12345/save
+    """
+    try:
+        # Get recent searches
+        entries = splunk_api.get_recent_searches(minutes=30)
+        
+        # Find the search
+        search_entry = None
+        for entry in entries:
+            if entry.get('content', {}).get('sid') == search_id:
+                search_entry = entry
+                break
+        
+        if not search_entry:
+            raise HTTPException(status_code=404, detail=f"Search {search_id} not found")
+        
+        # Parse search data
+        search_data = SearchAnalyzer.parse_search_entry(search_entry)
+        
+        # Detect issues
+        issues = SearchAnalyzer.detect_issues(search_data)
+        search_data['issues'] = issues
+        
+        if issues:
+            search_data['severity'] = SearchAnalyzer.calculate_severity(issues, search_data)
+        else:
+            search_data['severity'] = 'none'
+        
+        # Save to MongoDB (without AI analysis)
+        doc_id = await mongodb.save_flagged_search(search_data)
+        
+        return {
+            'status': 'success',
+            'message': 'Search saved to database',
+            'search_id': search_id,
+            'document_id': doc_id
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
+
+@app.post("/api/searches/{search_id}/analyze-and-save")
+async def analyze_and_save_search(search_id: str):
+    """
+    Analyze search with AI and save to MongoDB
+    
+    Example:
+        POST /api/searches/1234567890.12345/analyze-and-save
+    """
+    try:
+        # Get recent searches
+        entries = splunk_api.get_recent_searches(minutes=30)
+        
+        # Find the search
+        search_entry = None
+        for entry in entries:
+            if entry.get('content', {}).get('sid') == search_id:
+                search_entry = entry
+                break
+        
+        if not search_entry:
+            raise HTTPException(status_code=404, detail=f"Search {search_id} not found")
+        
+        # Parse search data
+        search_data = SearchAnalyzer.parse_search_entry(search_entry)
+        
+        # Only analyze completed searches
+        if not search_data['is_done']:
+            raise HTTPException(status_code=400, detail="Search is not complete yet")
+        
+        # Detect issues
+        issues = SearchAnalyzer.detect_issues(search_data)
+        search_data['issues'] = issues
+        
+        if issues:
+            search_data['severity'] = SearchAnalyzer.calculate_severity(issues, search_data)
+        else:
+            search_data['severity'] = 'none'
+        
+        # Get AI analysis
+        ai_result = ai_analyzer.analyze_search(search_data)
+        
+        # Save to MongoDB with AI analysis
+        doc_id = await mongodb.save_flagged_search(search_data, ai_result)
+        
+        return {
+            'status': 'success',
+            'message': 'Search analyzed and saved to database',
+            'search_id': search_id,
+            'document_id': doc_id,
+            'ai_analysis': ai_result['analysis'],
+            'optimized_spl': ai_result['optimized_spl'],
+            'token_usage': ai_result['token_usage']
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/searches/history")
+async def get_search_history(
+    limit: int = 100,
+    severity: Optional[str] = None,
+    has_ai_analysis: Optional[bool] = None
+):
+    """
+    Get flagged search history from MongoDB
+    
+    Args:
+        limit: Max results (default 100)
+        severity: Filter by severity (critical, high, medium, low)
+        has_ai_analysis: Filter by AI analysis presence (true/false)
+    
+    Example:
+        GET /api/searches/history?limit=50&severity=critical
+    """
+    try:
+        searches = await mongodb.get_recent_flagged_searches(
+            limit=limit,
+            severity=severity,
+            has_ai_analysis=has_ai_analysis
+        )
+        
+        return {
+            'status': 'success',
+            'count': len(searches),
+            'searches': searches
+        }
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/searches/history/{search_id}")
+async def get_search_from_history(search_id: str):
+    """
+    Get a specific search from history
+    
+    Example:
+        GET /api/searches/history/1234567890.12345
+    """
+    try:
+        search = await mongodb.get_search_by_id(search_id)
+        
+        if not search:
+            raise HTTPException(status_code=404, detail=f"Search {search_id} not found in history")
+        
+        return {
+            'status': 'success',
+            'search': search
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/stats")
+async def get_stats():
+    """
+    Get statistics about flagged searches
+    
+    Example:
+        GET /api/stats
+    """
+    try:
+        stats = await mongodb.get_stats()
+        
+        return {
+            'status': 'success',
+            'stats': stats
+        }
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 # ==================== RUN ====================
 
 if __name__ == "__main__":
